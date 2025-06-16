@@ -264,6 +264,7 @@ def health_check():
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 async def webhook():
     """Handle Telegram webhook updates"""
+    global application
     logger.info("Received webhook request")
     try:
         data = request.get_json(force=True)
