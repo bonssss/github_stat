@@ -1,34 +1,51 @@
 import requests
 import re
+import logging
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 import os
 from dotenv import load_dotenv
 
-load_dotenv()  # Load environment variables from .env file
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Telegram bot token
+# Environment variables
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-if not TELEGRAM_TOKEN:
-    raise ValueError("TELEGRAM_TOKEN environment variable is not set.")
-WEBHOOK_URL = os.environ.get('WEBHOOK_URL')  # Set in Render environment variables
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')  # Optional: for GitHub API rate limits
+
+# Validate environment variables
+if not TELEGRAM_TOKEN or not WEBHOOK_URL:
+    raise ValueError("TELEGRAM_TOKEN and WEBHOOK_URL must be set in environment variables.")
 
 # Validate GitHub username (alphanumeric and hyphens, max 39 chars)
 def is_valid_github_username(username: str) -> bool:
     pattern = r'^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$'
     return bool(re.match(pattern, username))
 
+# Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()  # Clear any existing context
+    """Handle /start command"""
+    logger.info(f"Start command received from user {update.effective_user.id}")
+    context.user_data.clear()
     await update.message.reply_text(
         'Hi! I am @github_statbot. Send me a GitHub username to get user info or use /help for commands.'
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /help command"""
+    logger.info(f"Help command received from user {update.effective_user.id}")
     help_text = (
         "Available commands:\n"
         "/start - Start the bot\n"
@@ -41,27 +58,35 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text)
 
 async def quit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()  # Clear stored context
+    """Handle /quit command"""
+    logger.info(f"Quit command received from user {update.effective_user.id}")
+    context.user_data.clear()
     await update.message.reply_text(
         "Interaction ended. Send another username or use /help for commands."
     )
 
 async def get_github_user_info(username: str) -> tuple[str, bool]:
+    """Fetch GitHub user information"""
+    logger.info(f"Fetching GitHub user info for @{username}")
     if not is_valid_github_username(username):
+        logger.warning(f"Invalid username: @{username}")
         return (
             f"Invalid username '@{username}'. GitHub usernames can only contain letters, numbers, and hyphens, up to 39 characters.",
             False
         )
     
     url = f'https://api.github.com/users/{username}'
+    headers = {'Authorization': f'token {GITHUB_TOKEN}'} if GITHUB_TOKEN else {}
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers=headers)
         if response.status_code == 403:
+            logger.error("GitHub API rate limit exceeded")
             return "GitHub API rate limit exceeded. Please try again later.", False
         response.raise_for_status()
         user_data = response.json()
         
         if not isinstance(user_data, dict):
+            logger.error(f"Unexpected GitHub API response for @{username}: {user_data}")
             return f"Unexpected response from GitHub API for user '@{username}'. Please try again.", False
         
         name = user_data.get('name', 'N/A')
@@ -80,44 +105,49 @@ async def get_github_user_info(username: str) -> tuple[str, bool]:
         reply += f"Following: {following}\n"
         reply += f"Joined: {created_at}\n"
         reply += f"Profile: {profile_url}"
-        
+        logger.info(f"Successfully fetched user info for @{username}")
         return reply, True
     except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error for @{username}: {str(e)}")
         if response.status_code == 404:
             return f"Sorry, the GitHub user '@{username}' does not exist. Please check the username and try again.", False
         return f"Error fetching user data: {str(e)}", False
     except Exception as e:
-        print(f"Error in get_github_user_info for @{username}: {str(e)}")
+        logger.exception(f"Unexpected error for @{username}: {str(e)}")
         return f"An unexpected error occurred: {str(e)}. Please try again.", False
 
 async def get_github_repos(username: str) -> tuple[str, bool]:
+    """Fetch up to 5 GitHub repositories"""
+    logger.info(f"Fetching repositories for @{username}")
     if not is_valid_github_username(username):
+        logger.warning(f"Invalid username: @{username}")
         return (
             f"Invalid username '@{username}'. GitHub usernames can only contain letters, numbers, and hyphens, up to 39 characters.",
             False
         )
     
     url = f'https://api.github.com/users/{username}/repos?per_page=5&sort=updated'
+    headers = {'Authorization': f'token {GITHUB_TOKEN}'} if GITHUB_TOKEN else {}
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers=headers)
         if response.status_code == 403:
+            logger.error("GitHub API rate limit exceeded")
             return "GitHub API rate limit exceeded. Please try again later.", False
         response.raise_for_status()
         repos_data = response.json()
         
-        print(f"GitHub API response for repos of @{username}: type={type(repos_data)}, content={repos_data}")
-        
         if not isinstance(repos_data, list):
-            print(f"Invalid repos_data type for @{username}: {type(repos_data)}")
+            logger.error(f"Invalid repos_data type for @{username}: {type(repos_data)}")
             return f"Unexpected response from GitHub API for repositories of '@{username}'. Please try again.", False
         
         if not repos_data:
+            logger.info(f"No public repositories found for @{username}")
             return f"No public repositories found for @{username}.", True
         
         reply = f"Top 5 repositories for @{username}:\n\n"
         for repo in repos_data:
             if not isinstance(repo, dict):
-                print(f"Invalid repo entry for @{username}: {repo}")
+                logger.warning(f"Invalid repo entry for @{username}: {repo}")
                 continue
             name = repo.get('name', 'N/A')
             description = repo.get('description') or 'No description'
@@ -131,21 +161,25 @@ async def get_github_repos(username: str) -> tuple[str, bool]:
             reply += f"⭐ Stars: {stars}\n"
             reply += f"URL: {url}\n\n"
         
+        logger.info(f"Successfully fetched repositories for @{username}")
         return reply, True
     except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error for @{username}: {str(e)}")
         if response.status_code == 404:
             return f"Sorry, the GitHub user '@{username}' does not exist. Please check the username and try again.", False
-        print(f"HTTP error in get_github_repos for @{username}: {str(e)}")
         return f"Error fetching repos: {str(e)}. Please try again.", False
     except Exception as e:
-        print(f"Error in get_github_repos for @{username}: {str(e)}")
+        logger.exception(f"Unexpected error for @{username}: {str(e)}")
         return f"An unexpected error occurred: {str(e)}. Please try again.", False
 
 async def handle_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle text messages with GitHub usernames"""
     username = update.message.text.strip()
+    logger.info(f"Received username: @{username} from user {update.effective_user.id}")
     context.user_data['last_username'] = username
     
     if not is_valid_github_username(username):
+        logger.warning(f"Invalid username received: @{username}")
         await update.message.reply_text(
             f"Invalid username '@{username}'. GitHub usernames can only contain letters, numbers, and hyphens, up to 39 characters."
         )
@@ -166,10 +200,12 @@ async def handle_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle inline button callbacks"""
     query = update.callback_query
     await query.answer()
     
     action, username = query.data.split('_', 1)
+    logger.info(f"Button callback: action={action}, username={username} from user {update.effective_user.id}")
     
     if action == 'quit':
         context.user_data.clear()
@@ -200,12 +236,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def repos_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /repos command"""
     if not context.args:
+        logger.warning(f"Repos command called without username by user {update.effective_user.id}")
         await update.message.reply_text("Please provide a GitHub username, e.g., /repos octocat")
         return
     
     username = context.args[0].strip()
+    logger.info(f"Repos command for @{username} by user {update.effective_user.id}")
     if not is_valid_github_username(username):
+        logger.warning(f"Invalid username in repos command: @{username}")
         await update.message.reply_text(
             f"Invalid username '@{username}'. GitHub usernames can only contain letters, numbers, and hyphens, up to 39 characters."
         )
@@ -214,17 +254,50 @@ async def repos_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply, _ = await get_github_repos(username)
     await update.message.reply_text(reply)
 
-# Flask route for webhook
+# Flask Routes
+@app.route('/', methods=['GET', 'HEAD'])
+def health_check():
+    """Handle health check requests"""
+    logger.info("Health check requested")
+    return 'GitHub StatBot is running', 200
+
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 async def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    await application.process_update(update)
-    return 'OK', 200
+    """Handle Telegram webhook updates"""
+    logger.info("Received webhook request")
+    try:
+        data = request.get_json(force=True)
+        if not data:
+            logger.warning("Empty webhook payload")
+            return 'Bad Request', 400
+        update = Update.de_json(data, application.bot)
+        if not update:
+            logger.warning("Invalid update received")
+            return 'OK', 200
+        await application.process_update(update)
+        logger.info("Webhook processed successfully")
+        return 'OK', 200
+    except Exception as e:
+        logger.exception(f"Webhook error: {str(e)}")
+        return 'Error', 500
+
+# Bot Setup
+async def set_commands(application):
+    """Set Telegram bot commands"""
+    logger.info("Setting bot commands")
+    await application.bot.set_my_commands([
+        ('start', 'Start the bot'),
+        ('help', 'Show help message'),
+        ('repos', 'List user repositories'),
+        ('quit', 'End interaction')
+    ])
 
 def main():
+    """Initialize and run the bot"""
     global application
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
+    # Add handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('help', help_command))
     application.add_handler(CommandHandler('quit', quit_command))
@@ -232,7 +305,8 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_username))
     application.add_handler(CallbackQueryHandler(button_callback))
     
-    print("Bot @github_statbot is setting up webhook...")
+    logger.info("Setting up webhook...")
+    application.job_queue.run_once(lambda _: set_commands(application), 0)
     application.run_webhook(
         listen='0.0.0.0',
         port=int(os.environ.get('PORT', 8443)),
@@ -241,4 +315,5 @@ def main():
     )
 
 if __name__ == '__main__':
+    logger.info("Starting GitHub StatBot")
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8443)))
