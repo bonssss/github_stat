@@ -261,7 +261,7 @@ def health_check():
     logger.info("Health check requested")
     return 'GitHub StatBot is running', 200
 
-application = Application().builder().token(TELEGRAM_TOKEN).build()
+application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 
