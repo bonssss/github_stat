@@ -268,6 +268,7 @@ async def webhook():
     logger.info("Received webhook request")
     try:
         data = request.get_json(force=True)
+        logger.debug(f"webhook payload: {data}")
         if not data:
             logger.warning("Empty webhook payload")
             return 'Bad Request', 400
