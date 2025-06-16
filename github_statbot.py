@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 import os
 from dotenv import load_dotenv
-
+import asyncio
 load_dotenv()  # Load environment variables from .env file
 
 # Initialize Flask app
@@ -215,11 +215,19 @@ async def repos_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(reply)
 
 # Flask route for webhook
+# @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
+# async def webhook():
+#     update = Update.de_json(request.get_json(force=True), application.bot)
+#     await application.process_update(update)
+#     return 'OK', 200
+
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-async def webhook():
+def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-    await application.process_update(update)
+    asyncio.run(application.process_update(update))
     return 'OK', 200
+
+
 
 def main():
     global application
