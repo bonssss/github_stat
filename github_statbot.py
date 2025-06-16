@@ -227,11 +227,11 @@ def webhook():
     asyncio.run(application.process_update(update))
     return 'OK', 200
 
-
+application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 def main():
-    global application
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    # global application
+    # application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('help', help_command))
@@ -249,4 +249,4 @@ def main():
     )
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8443)))
+    main()
