@@ -1,9 +1,13 @@
 import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-
+import os
+# load_dotenv is not used here, but can be used to load environment variables from a .env file
+from dotenv import load_dotenv
+# Load environment variables from .env file if needed
+load_dotenv()
 # Telegram bot token from BotFather
-TELEGRAM_TOKEN = '7723230551:AAGRhUohfUuJ9jl1BXVbWjBHWvT_Qsv2Bwk'
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Hi! I am @github_statbot. Send me a GitHub username, and I’ll fetch info about that user.')
