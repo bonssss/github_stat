@@ -48,10 +48,11 @@ async def get_github_user_info(username: str) -> tuple[str, bool]:
         )
     
     url = f'https://api.github.com/users/{username}'
+    headers = {'Authorization': f'token {os.getenv("GITHUB_TOKEN")}'}
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers=headers)
         if response.status_code == 403:
-            return "GitHub API rate limit exceeded. Please try again later.", False
+            return "GitHub API rate limit exceeded or invalid token. Please try again later.", False
         response.raise_for_status()
         user_data = response.json()
         
@@ -92,15 +93,13 @@ async def get_github_repos(username: str) -> tuple[str, bool]:
         )
     
     url = f'https://api.github.com/users/{username}/repos?per_page=5&sort=updated'
+    headers = {'Authorization': f'token {os.getenv("GITHUB_TOKEN")}'}
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers=headers)
         if response.status_code == 403:
-            return "GitHub API rate limit exceeded. Please try again later.", False
+            return "GitHub API rate limit exceeded or invalid token. Please try again later.", False
         response.raise_for_status()
         repos_data = response.json()
-        
-        # Debug: Log the response type and content
-        # print(f"GitHub API response for repos of @{username}: type={type(repos_data)}, content={repos_data}")
         
         if not isinstance(repos_data, list):
             print(f"Invalid repos_data type for @{username}: {type(repos_data)}")
@@ -113,7 +112,7 @@ async def get_github_repos(username: str) -> tuple[str, bool]:
         for repo in repos_data:
             if not isinstance(repo, dict):
                 print(f"Invalid repo entry for @{username}: {repo}")
-                continue  # Skip invalid repo entries
+                continue
             
             name = repo.get('name', 'N/A')
             description = repo.get('description') or 'No description'
