@@ -2,9 +2,14 @@ import requests
 import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 # Telegram bot token
-TELEGRAM_TOKEN = '7723230551:AAGRhUohfUuJ9jl1BXVbWjBHWvT_Qsv2Bwk'
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+if not TELEGRAM_TOKEN:
+    raise ValueError("TELEGRAM_TOKEN environment variable is not set.")
 
 # Validate GitHub username (alphanumeric and hyphens, max 39 chars)
 def is_valid_github_username(username: str) -> bool:
@@ -95,7 +100,7 @@ async def get_github_repos(username: str) -> tuple[str, bool]:
         repos_data = response.json()
         
         # Debug: Log the response type and content
-        print(f"GitHub API response for repos of @{username}: type={type(repos_data)}, content={repos_data}")
+        # print(f"GitHub API response for repos of @{username}: type={type(repos_data)}, content={repos_data}")
         
         if not isinstance(repos_data, list):
             print(f"Invalid repos_data type for @{username}: {type(repos_data)}")
@@ -215,8 +220,17 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_username))
     application.add_handler(CallbackQueryHandler(button_callback))
     
-    print("Bot @github_statbot is running...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Webhook setup
+    port = int(os.getenv('PORT', 8443))
+    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/{TELEGRAM_TOKEN}"
+    
+    print(f"Setting webhook to {webhook_url}")
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=TELEGRAM_TOKEN,
+        webhook_url=webhook_url
+    )
 
 if __name__ == '__main__':
     main()
